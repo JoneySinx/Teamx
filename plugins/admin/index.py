@@ -1,7 +1,7 @@
-# plugins/admin/index.py
 import re
 import time
 import asyncio
+
 from hydrogram import Client, filters, enums
 from hydrogram.errors import FloodWait
 from hydrogram.types import (
@@ -18,8 +18,8 @@ from database.ia_filterdb import save_file
 # ─────────────────────────────────────
 # 🔐 ADMIN FILTER
 # ─────────────────────────────────────
-async def admin_only(_, __, message):
-    return message.from_user and message.from_user.id in ADMINS
+async def admin_only(_, __, obj):
+    return obj.from_user and obj.from_user.id in ADMINS
 
 admin_filter = filters.create(admin_only)
 
@@ -27,18 +27,18 @@ lock = asyncio.Lock()
 
 
 # ─────────────────────────────────────
-# 📥 START INDEX COMMAND
+# 📥 START INDEX COMMAND (ADMIN)
 # ─────────────────────────────────────
 @Client.on_message(filters.command("index") & filters.private & admin_filter)
 async def admin_index_start(bot, message):
     if lock.locked():
         return await message.reply("⏳ Index already running. Please wait.")
 
-    ask = await message.reply("📩 Forward last channel message or send message link.")
+    ask = await message.reply("📩 Forward last channel message or send channel message link.")
     msg = await bot.listen(message.chat.id, message.from_user.id)
     await ask.delete()
 
-    # ── Extract message id & chat ──
+    # ── Extract message id & chat id ──
     if msg.text and msg.text.startswith("https://t.me"):
         try:
             parts = msg.text.split("/")
@@ -68,25 +68,34 @@ async def admin_index_start(bot, message):
 
     try:
         skip = int(skip_msg.text)
-    except:
+    except ValueError:
         return await message.reply("❌ Skip value must be a number.")
 
     # ── DB Selection Panel ──
     text = (
         "<b>📥 Select Database for Indexing</b>\n\n"
         f"📺 Channel : <code>{chat.title}</code>\n"
-        f"📦 Total Messages : <code>{last_msg_id}</code>\n"
+        f"📦 Last Message ID : <code>{last_msg_id}</code>\n"
         f"⏩ Skip : <code>{skip}</code>\n\n"
         "Choose where to index 👇"
     )
 
     buttons = [
         [
-            InlineKeyboardButton("🗂 Primary DB", callback_data=f"index_db#primary#{chat_id}#{last_msg_id}#{skip}"),
-            InlineKeyboardButton("☁️ Cloud DB", callback_data=f"index_db#cloud#{chat_id}#{last_msg_id}#{skip}")
+            InlineKeyboardButton(
+                "🗂 Primary DB",
+                callback_data=f"index_db#primary#{chat_id}#{last_msg_id}#{skip}"
+            ),
+            InlineKeyboardButton(
+                "☁️ Cloud DB",
+                callback_data=f"index_db#cloud#{chat_id}#{last_msg_id}#{skip}"
+            ),
         ],
         [
-            InlineKeyboardButton("📦 Archive DB", callback_data=f"index_db#archive#{chat_id}#{last_msg_id}#{skip}")
+            InlineKeyboardButton(
+                "📦 Archive DB",
+                callback_data=f"index_db#archive#{chat_id}#{last_msg_id}#{skip}"
+            )
         ],
         [
             InlineKeyboardButton("❌ Cancel", callback_data="index_cancel")
@@ -121,9 +130,9 @@ async def index_with_db(bot, query: CallbackQuery):
     skip = int(skip)
 
     await query.edit_message_text(
-        f"<b>🚀 Indexing Started</b>\n\n"
+        "<b>🚀 Indexing Started</b>\n\n"
         f"🗄 Database : <code>{db_type.upper()}</code>\n"
-        f"⏳ Please wait...",
+        "⏳ Please wait...",
         parse_mode=enums.ParseMode.HTML
     )
 
@@ -163,12 +172,15 @@ async def run_indexing(bot, msg, chat_id, last_msg_id, skip, db_type):
                     no_media += 1
                     continue
 
-                if message.media not in [enums.MessageMediaType.VIDEO, enums.MessageMediaType.DOCUMENT]:
+                if message.media not in (
+                    enums.MessageMediaType.VIDEO,
+                    enums.MessageMediaType.DOCUMENT
+                ):
                     unsupported += 1
                     continue
 
                 media = getattr(message, message.media.value, None)
-                if not media:
+                if not media or not media.file_name:
                     unsupported += 1
                     continue
 
@@ -188,7 +200,7 @@ async def run_indexing(bot, msg, chat_id, last_msg_id, skip, db_type):
 
                 if current % 30 == 0:
                     await msg.edit(
-                        f"<b>📊 Indexing Progress</b>\n\n"
+                        "<b>📊 Indexing Progress</b>\n\n"
                         f"🗄 DB : <code>{db_type.upper()}</code>\n"
                         f"📥 Saved : <code>{total}</code>\n"
                         f"♻️ Duplicate : <code>{duplicate}</code>\n"
@@ -199,13 +211,12 @@ async def run_indexing(bot, msg, chat_id, last_msg_id, skip, db_type):
 
         except FloodWait as e:
             await asyncio.sleep(e.value)
-
         except Exception as e:
             return await msg.reply(f"❌ Index failed: {e}")
 
     # ── Final Report ──
     await msg.edit(
-        f"<b>✅ Index Completed</b>\n\n"
+        "<b>✅ Index Completed</b>\n\n"
         f"🗄 Database : <code>{db_type.upper()}</code>\n"
         f"📥 Total Saved : <code>{total}</code>\n"
         f"♻️ Duplicate : <code>{duplicate}</code>\n"
